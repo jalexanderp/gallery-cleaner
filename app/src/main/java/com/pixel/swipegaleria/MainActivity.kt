@@ -14,24 +14,33 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 enum class SortField(val label: String) {
@@ -42,6 +51,7 @@ enum class SortField(val label: String) {
 data class PhotoItem(
     val id: Long,
     val uri: Uri,
+    val displayName: String,
     val dateAddedSeconds: Long,
     val sizeBytes: Long
 )
@@ -70,6 +80,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+private fun formatPhotoDate(dateAddedSeconds: Long): String {
+    val formatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+    return formatter.format(Date(TimeUnit.SECONDS.toMillis(dateAddedSeconds)))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -261,63 +276,167 @@ fun SwipeGalleryApp() {
                     Text("¡Listo! No quedan fotos pendientes por revisar.")
                 } else {
                     var offsetX by remember(currentPhoto.id) { mutableFloatStateOf(0f) }
+                    var zoomScale by remember(currentPhoto.id) { mutableFloatStateOf(1f) }
+                    var panOffset by remember(currentPhoto.id) { mutableStateOf(Offset.Zero) }
                     val swipeThreshold = 220f
 
-                    AsyncImage(
-                        model = currentPhoto.uri,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
+                    val trashAlpha = ((-offsetX / swipeThreshold).coerceIn(0f, 1f) * 0.65f) + 0.25f
+                    val keepAlpha = ((offsetX / swipeThreshold).coerceIn(0f, 1f) * 0.65f) + 0.25f
+
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                translationX = offsetX
-                                rotationZ = (offsetX / 40f).coerceIn(-12f, 12f)
+                                translationX = if (zoomScale <= 1.01f) offsetX else 0f
+                                rotationZ = if (zoomScale <= 1.01f) {
+                                    (offsetX / 40f).coerceIn(-12f, 12f)
+                                } else {
+                                    0f
+                                }
                             }
-                            .pointerInput(currentPhoto.id) {
-                                detectDragGestures(
-                                    onDragEnd = {
-                                        when {
-                                            offsetX > swipeThreshold -> {
-                                                keptIds.add(currentPhoto.id)
-                                                history.add(DecisionRecord(currentPhoto, DecisionType.KEEP))
-                                            }
-                                            offsetX < -swipeThreshold -> {
-                                                trashList.add(
-                                                    TrashRecord(
-                                                        photo = currentPhoto,
-                                                        markedAtMillis = System.currentTimeMillis()
-                                                    )
-                                                )
-                                                history.add(DecisionRecord(currentPhoto, DecisionType.TRASH))
-                                            }
-                                        }
-                                        offsetX = 0f
-                                    },
-                                    onDragCancel = { offsetX = 0f },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        offsetX += dragAmount.x
+                            .pointerInput(currentPhoto.id, zoomScale) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val nextScale = (zoomScale * zoom).coerceIn(1f, 5f)
+                                    zoomScale = nextScale
+                                    if (nextScale > 1.01f) {
+                                        val maxPanX = size.width * (nextScale - 1f) * 0.6f
+                                        val maxPanY = size.height * (nextScale - 1f) * 0.6f
+                                        panOffset = Offset(
+                                            x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                                            y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                                        )
+                                    } else {
+                                        panOffset = Offset.Zero
                                     }
+                                }
+                            }
+                            .pointerInput(currentPhoto.id, zoomScale) {
+                                if (zoomScale <= 1.01f) {
+                                    detectDragGestures(
+                                        onDragEnd = {
+                                            when {
+                                                offsetX > swipeThreshold -> {
+                                                    keptIds.add(currentPhoto.id)
+                                                    history.add(DecisionRecord(currentPhoto, DecisionType.KEEP))
+                                                }
+                                                offsetX < -swipeThreshold -> {
+                                                    trashList.add(
+                                                        TrashRecord(
+                                                            photo = currentPhoto,
+                                                            markedAtMillis = System.currentTimeMillis()
+                                                        )
+                                                    )
+                                                    history.add(DecisionRecord(currentPhoto, DecisionType.TRASH))
+                                                }
+                                            }
+                                            offsetX = 0f
+                                        },
+                                        onDragCancel = { offsetX = 0f },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            offsetX += dragAmount.x
+                                        }
+                                    )
+                                }
+                            }
+                    ) {
+                        AsyncImage(
+                            model = currentPhoto.uri,
+                            contentDescription = currentPhoto.displayName,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleX = zoomScale
+                                    scaleY = zoomScale
+                                    translationX = panOffset.x
+                                    translationY = panOffset.y
+                                }
+                        )
+
+                        // Capa transparente sobre la imagen con acciones izquierda (eliminar) y derecha (conservar)
+                        if (zoomScale <= 1.01f) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.Center)
+                                    .padding(horizontal = 24.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .background(
+                                            color = Color(0xFFB71C1C).copy(alpha = trashAlpha.coerceAtMost(0.75f)),
+                                            shape = MaterialTheme.shapes.large
+                                        )
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = "Eliminar",
+                                        tint = Color.White.copy(alpha = (trashAlpha + 0.1f).coerceAtMost(1f)),
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Text(
+                                        text = "Eliminar",
+                                        color = Color.White.copy(alpha = (trashAlpha + 0.1f).coerceAtMost(1f)),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .background(
+                                            color = Color(0xFF1B5E20).copy(alpha = keepAlpha.coerceAtMost(0.75f)),
+                                            shape = MaterialTheme.shapes.large
+                                        )
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircleOutline,
+                                        contentDescription = "Conservar",
+                                        tint = Color.White.copy(alpha = (keepAlpha + 0.1f).coerceAtMost(1f)),
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Text(
+                                        text = "Conservar",
+                                        color = Color.White.copy(alpha = (keepAlpha + 0.1f).coerceAtMost(1f)),
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
+                            }
+                        }
+
+                        // Título y fecha de la imagen en la parte inferior
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.65f),
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 16.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = currentPhoto.displayName,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = formatPhotoDate(currentPhoto.dateAddedSeconds),
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             }
-                    )
-
-                    val hint = when {
-                        offsetX > 80f -> "CONSERVAR →"
-                        offsetX < -80f -> "← PAPELERA"
-                        else -> "${sortField.label}: ${if (descending) "Descendente" else "Ascendente"}"
-                    }
-                    Surface(
-                        tonalElevation = 4.dp,
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 24.dp)
-                    ) {
-                        Text(
-                            text = hint,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
+                        }
                     }
                 }
             }
@@ -366,6 +485,7 @@ private fun loadPhotosFromMediaStore(context: android.content.Context): List<Pho
 
     val projection = arrayOf(
         MediaStore.Images.Media._ID,
+        MediaStore.Images.Media.DISPLAY_NAME,
         MediaStore.Images.Media.DATE_ADDED,
         MediaStore.Images.Media.SIZE
     )
@@ -378,15 +498,25 @@ private fun loadPhotosFromMediaStore(context: android.content.Context): List<Pho
         "${MediaStore.Images.Media.DATE_ADDED} DESC"
     )?.use { cursor ->
         val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+        val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
         val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
         val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
 
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idCol)
+            val displayName = cursor.getString(nameCol) ?: "IMG_$id.jpg"
             val dateAdded = cursor.getLong(dateCol)
             val sizeBytes = cursor.getLong(sizeCol)
             val uri = ContentUris.withAppendedId(collection, id)
-            result.add(PhotoItem(id = id, uri = uri, dateAddedSeconds = dateAdded, sizeBytes = sizeBytes))
+            result.add(
+                PhotoItem(
+                    id = id,
+                    uri = uri,
+                    displayName = displayName,
+                    dateAddedSeconds = dateAdded,
+                    sizeBytes = sizeBytes
+                )
+            )
         }
     }
     return result
