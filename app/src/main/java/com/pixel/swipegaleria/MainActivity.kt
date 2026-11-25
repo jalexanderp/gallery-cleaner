@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -538,80 +539,104 @@ fun SwipeGalleryApp() {
                                 }
                         )
 
-                        // Capa transparente: deslizar + borrador (izquierda) y deslizar + disco (derecha)
+                        // Capa transparente grande y legible: deslizar + borrador (izquierda) y deslizar + disco (derecha)
                         if (zoomScale <= 1.02f) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .align(Alignment.Center)
-                                    .padding(horizontal = 20.dp),
+                                    .padding(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color(0xFFF3F4F6).copy(alpha = 0.62f + trashProgress * 0.35f),
-                                    shadowElevation = 6.dp,
+                                    color = Color(0xFFF3F4F6).copy(alpha = 0.68f + trashProgress * 0.28f),
+                                    shadowElevation = 8.dp,
                                     modifier = Modifier
-                                        .size(72.dp)
+                                        .size(96.dp)
                                         .graphicsLayer {
                                             val s = 1f + trashProgress * 0.14f
                                             scaleX = s
                                             scaleY = s
                                         }
                                 ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier.fillMaxSize()
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(6.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.SwipeLeft,
-                                            contentDescription = "Deslizar a la izquierda para borrar",
-                                            tint = Color(0xFF374151),
-                                            modifier = Modifier.size(34.dp)
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Outlined.AutoFixNormal,
-                                            contentDescription = null,
-                                            tint = Color(0xFFB91C1C),
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .align(Alignment.TopEnd)
-                                                .padding(top = 10.dp, end = 10.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.SwipeLeft,
+                                                contentDescription = "Deslizar a la izquierda para borrar",
+                                                tint = Color(0xFF1F2937),
+                                                modifier = Modifier.size(34.dp)
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Outlined.AutoFixNormal,
+                                                contentDescription = null,
+                                                tint = Color(0xFFB91C1C),
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = "Borrar",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF991B1B),
+                                            maxLines = 1
                                         )
                                     }
                                 }
 
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color(0xFFF3F4F6).copy(alpha = 0.62f + keepProgress * 0.35f),
-                                    shadowElevation = 6.dp,
+                                    color = Color(0xFFF3F4F6).copy(alpha = 0.68f + keepProgress * 0.28f),
+                                    shadowElevation = 8.dp,
                                     modifier = Modifier
-                                        .size(72.dp)
+                                        .size(96.dp)
                                         .graphicsLayer {
                                             val s = 1f + keepProgress * 0.14f
                                             scaleX = s
                                             scaleY = s
                                         }
                                 ) {
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier.fillMaxSize()
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(6.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.SwipeRight,
-                                            contentDescription = "Deslizar a la derecha para conservar",
-                                            tint = Color(0xFF374151),
-                                            modifier = Modifier.size(34.dp)
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Rounded.Save,
-                                            contentDescription = null,
-                                            tint = Color(0xFF15803D),
-                                            modifier = Modifier
-                                                .size(18.dp)
-                                                .align(Alignment.TopEnd)
-                                                .padding(top = 10.dp, end = 10.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.SwipeRight,
+                                                contentDescription = "Deslizar a la derecha para conservar",
+                                                tint = Color(0xFF1F2937),
+                                                modifier = Modifier.size(34.dp)
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Rounded.Save,
+                                                contentDescription = null,
+                                                tint = Color(0xFF15803D),
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = "Guardar",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF166534),
+                                            maxLines = 1
                                         )
                                     }
                                 }
@@ -691,12 +716,18 @@ private fun TrashManagerModal(
     onRestoreSelected: (Set<Long>) -> Unit,
     onDeletePermanentlySelected: (Set<Long>) -> Unit
 ) {
-    val selectedIds = remember { mutableStateListOf<Long>() }
+    val checkedById = remember { mutableStateMapOf<Long, Boolean>() }
 
     LaunchedEffect(trashRecords) {
         val validIds = trashRecords.map { it.photo.id }.toSet()
-        selectedIds.removeAll { it !in validIds }
+        val staleKeys = checkedById.keys.filter { it !in validIds }
+        staleKeys.forEach { checkedById.remove(it) }
     }
+
+    val selectedIds: Set<Long> = checkedById
+        .filterValues { it }
+        .keys
+        .toSet()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -721,7 +752,7 @@ private fun TrashManagerModal(
                     actions = {
                         IconButton(
                             onClick = {
-                                selectedIds.clear()
+                                checkedById.clear()
                                 onRestoreAll()
                             },
                             enabled = trashRecords.isNotEmpty()
@@ -732,7 +763,11 @@ private fun TrashManagerModal(
                             )
                         }
                         IconButton(
-                            onClick = { onDeletePermanentlySelected(selectedIds.toSet()) },
+                            onClick = {
+                                val chosen = selectedIds
+                                checkedById.clear()
+                                onDeletePermanentlySelected(chosen)
+                            },
                             enabled = trashRecords.isNotEmpty()
                         ) {
                             Icon(
@@ -760,8 +795,8 @@ private fun TrashManagerModal(
                             )
                             OutlinedButton(
                                 onClick = {
-                                    val chosen = selectedIds.toSet()
-                                    selectedIds.removeAll { it in chosen }
+                                    val chosen = selectedIds
+                                    chosen.forEach { checkedById.remove(it) }
                                     onRestoreSelected(chosen)
                                 }
                             ) {
@@ -769,8 +804,8 @@ private fun TrashManagerModal(
                             }
                             Button(
                                 onClick = {
-                                    val chosen = selectedIds.toSet()
-                                    selectedIds.clear()
+                                    val chosen = selectedIds
+                                    chosen.forEach { checkedById.remove(it) }
                                     onDeletePermanentlySelected(chosen)
                                 }
                             ) {
@@ -802,7 +837,7 @@ private fun TrashManagerModal(
                 ) {
                     items(trashRecords, key = { it.photo.id }) { record ->
                         val photo = record.photo
-                        val isChecked = selectedIds.contains(photo.id)
+                        val isChecked = checkedById[photo.id] == true
 
                         Box(
                             modifier = Modifier
@@ -810,11 +845,7 @@ private fun TrashManagerModal(
                                 .clip(MaterialTheme.shapes.small)
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .clickable {
-                                    if (isChecked) {
-                                        selectedIds.remove(photo.id)
-                                    } else {
-                                        selectedIds.add(photo.id)
-                                    }
+                                    checkedById[photo.id] = !isChecked
                                 }
                         ) {
                             AsyncImage(
@@ -827,11 +858,7 @@ private fun TrashManagerModal(
                             Checkbox(
                                 checked = isChecked,
                                 onCheckedChange = { checked ->
-                                    if (checked) {
-                                        if (!selectedIds.contains(photo.id)) selectedIds.add(photo.id)
-                                    } else {
-                                        selectedIds.remove(photo.id)
-                                    }
+                                    checkedById[photo.id] = checked
                                 },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
