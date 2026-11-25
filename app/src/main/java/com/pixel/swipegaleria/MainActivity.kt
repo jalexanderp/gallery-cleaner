@@ -3,6 +3,7 @@ package com.pixel.swipegaleria
 import android.Manifest
 import android.app.Activity
 import android.content.ContentUris
+import android.content.Context
 import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -15,19 +16,30 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -36,8 +48,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,9 +83,14 @@ enum class DecisionType {
 }
 
 data class DecisionRecord(
-    val photo: PhotoItem,
+    val photoId: Long,
     val type: DecisionType
 )
+
+private const val PREFS_NAME = "swipe_galeria_prefs"
+private const val KEY_KEPT_IDS = "kept_ids_json"
+private const val KEY_TRASH_ITEMS = "trash_items_json"
+private const val KEY_HISTORY_ITEMS = "history_items_json"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,6 +106,121 @@ class MainActivity : ComponentActivity() {
 private fun formatPhotoDate(dateAddedSeconds: Long): String {
     val formatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
     return formatter.format(Date(TimeUnit.SECONDS.toMillis(dateAddedSeconds)))
+}
+
+private fun saveStateToPrefs(
+    context: Context,
+    keptIds: List<Long>,
+    trashList: List<TrashRecord>,
+    history: List<DecisionRecord>
+) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val keptJson = JSONArray().apply {
+        keptIds.forEach { put(it) }
+    }
+    val trashJson = JSONArray().apply {
+        trashList.forEach { record ->
+            put(
+                JSONObject().apply {
+                    put("id", record.photo.id)
+                    put("uri", record.photo.uri.toString())
+                    put("displayName", record.photo.displayName)
+                    put("dateAddedSeconds", record.photo.dateAddedSeconds)
+                    put("sizeBytes", record.photo.sizeBytes)
+                    put("markedAtMillis", record.markedAtMillis)
+                }
+            )
+        }
+    }
+    val historyJson = JSONArray().apply {
+        history.forEach { item ->
+            put(
+                JSONObject().apply {
+                    put("photoId", item.photoId)
+                    put("type", item.type.name)
+                }
+            )
+        }
+    }
+
+    prefs.edit()
+        .putString(KEY_KEPT_IDS, keptJson.toString())
+        .putString(KEY_TRASH_ITEMS, trashJson.toString())
+        .putString(KEY_HISTORY_ITEMS, historyJson.toString())
+        .apply()
+}
+
+private fun loadKeptIdsFromPrefs(context: Context): List<Long> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val raw = prefs.getString(KEY_KEPT_IDS, null) ?: return emptyList()
+    return try {
+        val arr = JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                add(arr.getLong(i))
+            }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun loadTrashFromPrefs(context: Context): List<TrashRecord> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val raw = prefs.getString(KEY_TRASH_ITEMS, null) ?: return emptyList()
+    return try {
+        val arr = JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val id = obj.getLong("id")
+                val uriStr = obj.optString("uri", "")
+                val uri = if (uriStr.isNotBlank()) {
+                    Uri.parse(uriStr)
+                } else {
+                    val base = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                    } else {
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    }
+                    ContentUris.withAppendedId(base, id)
+                }
+                add(
+                    TrashRecord(
+                        photo = PhotoItem(
+                            id = id,
+                            uri = uri,
+                            displayName = obj.optString("displayName", "IMG_$id.jpg"),
+                            dateAddedSeconds = obj.optLong("dateAddedSeconds", 0L),
+                            sizeBytes = obj.optLong("sizeBytes", 0L)
+                        ),
+                        markedAtMillis = obj.optLong("markedAtMillis", System.currentTimeMillis())
+                    )
+                )
+            }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun loadHistoryFromPrefs(context: Context): List<DecisionRecord> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val raw = prefs.getString(KEY_HISTORY_ITEMS, null) ?: return emptyList()
+    return try {
+        val arr = JSONArray(raw)
+        buildList {
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val type = runCatching { DecisionType.valueOf(obj.getString("type")) }.getOrNull()
+                if (type != null) {
+                    add(DecisionRecord(photoId = obj.getLong("photoId"), type = type))
+                }
+            }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -121,26 +257,33 @@ fun SwipeGalleryApp() {
     var sortField by remember { mutableStateOf(SortField.DATE) }
     var descending by remember { mutableStateOf(true) }
 
-    val keptIds = remember { mutableStateListOf<Long>() }
-    val trashList = remember { mutableStateListOf<TrashRecord>() }
-    val history = remember { mutableStateListOf<DecisionRecord>() }
+    val keptIds = remember { mutableStateListOf<Long>().apply { addAll(loadKeptIdsFromPrefs(context)) } }
+    val trashList = remember { mutableStateListOf<TrashRecord>().apply { addAll(loadTrashFromPrefs(context)) } }
+    val history = remember { mutableStateListOf<DecisionRecord>().apply { addAll(loadHistoryFromPrefs(context)) } }
 
-    var showTrashSheet by remember { mutableStateOf(false) }
+    var pendingDeletionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showTrashModal by remember { mutableStateOf(false) }
+
+    fun persistNow() {
+        saveStateToPrefs(
+            context = context,
+            keptIds = keptIds.toList(),
+            trashList = trashList.toList(),
+            history = history.toList()
+        )
+    }
 
     val deleteRequestLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val thirtyDaysMillis = TimeUnit.DAYS.toMillis(30)
-            val now = System.currentTimeMillis()
-            val expiredIds = trashList
-                .filter { now - it.markedAtMillis >= thirtyDaysMillis }
-                .map { it.photo.id }
-                .toSet()
-
-            trashList.removeAll { it.photo.id in expiredIds }
-            rawPhotos = rawPhotos.filterNot { it.id in expiredIds }
+        if (result.resultCode == Activity.RESULT_OK && pendingDeletionIds.isNotEmpty()) {
+            val idsToRemove = pendingDeletionIds
+            trashList.removeAll { it.photo.id in idsToRemove }
+            history.removeAll { it.photoId in idsToRemove }
+            rawPhotos = rawPhotos.filterNot { it.id in idsToRemove }
+            persistNow()
         }
+        pendingDeletionIds = emptySet()
     }
 
     LaunchedEffect(hasPermission) {
@@ -165,34 +308,41 @@ fun SwipeGalleryApp() {
         sortedPhotos.filterNot { it.id in decidedIds }
     }
 
-    fun requestSystemDeletion(uris: List<Uri>) {
-        if (uris.isEmpty() || activity == null) return
+    fun requestSystemDeletion(records: List<TrashRecord>) {
+        if (records.isEmpty() || activity == null) return
+        val uris = records.map { it.photo.uri }
+        pendingDeletionIds = records.map { it.photo.id }.toSet()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, uris)
             val request = IntentSenderRequest.Builder(pendingIntent.intentSender).build()
             deleteRequestLauncher.launch(request)
         } else {
-            uris.forEach { uri ->
+            val deletedIds = mutableSetOf<Long>()
+            records.forEach { rec ->
                 try {
-                    context.contentResolver.delete(uri, null, null)
+                    val rows = context.contentResolver.delete(rec.photo.uri, null, null)
+                    if (rows > 0) deletedIds.add(rec.photo.id)
                 } catch (_: IntentSender.SendIntentException) {
                 } catch (_: SecurityException) {
                 }
             }
-            val deletedSet = uris.toSet()
-            trashList.removeAll { it.photo.uri in deletedSet }
-            rawPhotos = rawPhotos.filterNot { it.uri in deletedSet }
+            if (deletedIds.isNotEmpty()) {
+                trashList.removeAll { it.photo.id in deletedIds }
+                history.removeAll { it.photoId in deletedIds }
+                rawPhotos = rawPhotos.filterNot { it.id in deletedIds }
+                persistNow()
+            }
+            pendingDeletionIds = emptySet()
         }
     }
 
     LaunchedEffect(trashList.size) {
         val thirtyDaysMillis = TimeUnit.DAYS.toMillis(30)
         val now = System.currentTimeMillis()
-        val expiredUris = trashList
-            .filter { now - it.markedAtMillis >= thirtyDaysMillis }
-            .map { it.photo.uri }
-        if (expiredUris.isNotEmpty()) {
-            requestSystemDeletion(expiredUris)
+        val expiredRecords = trashList.filter { now - it.markedAtMillis >= thirtyDaysMillis }
+        if (expiredRecords.isNotEmpty() && pendingDeletionIds.isEmpty()) {
+            requestSystemDeletion(expiredRecords)
         }
     }
 
@@ -231,9 +381,10 @@ fun SwipeGalleryApp() {
                         onClick = {
                             val last = history.removeLastOrNull() ?: return@IconButton
                             when (last.type) {
-                                DecisionType.KEEP -> keptIds.remove(last.photo.id)
-                                DecisionType.TRASH -> trashList.removeAll { it.photo.id == last.photo.id }
+                                DecisionType.KEEP -> keptIds.remove(last.photoId)
+                                DecisionType.TRASH -> trashList.removeAll { it.photo.id == last.photoId }
                             }
+                            persistNow()
                         },
                         enabled = history.isNotEmpty()
                     ) {
@@ -248,7 +399,7 @@ fun SwipeGalleryApp() {
                         },
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
-                        IconButton(onClick = { showTrashSheet = true }) {
+                        IconButton(onClick = { showTrashModal = true }) {
                             Icon(Icons.Default.DeleteOutline, contentDescription = "Papelera")
                         }
                     }
@@ -278,29 +429,42 @@ fun SwipeGalleryApp() {
                     var offsetX by remember(currentPhoto.id) { mutableFloatStateOf(0f) }
                     var zoomScale by remember(currentPhoto.id) { mutableFloatStateOf(1f) }
                     var panOffset by remember(currentPhoto.id) { mutableStateOf(Offset.Zero) }
+                    val currentScaleState by rememberUpdatedState(zoomScale)
                     val swipeThreshold = 220f
 
-                    val trashAlpha = ((-offsetX / swipeThreshold).coerceIn(0f, 1f) * 0.65f) + 0.25f
-                    val keepAlpha = ((offsetX / swipeThreshold).coerceIn(0f, 1f) * 0.65f) + 0.25f
+                    val trashProgress = (-offsetX / swipeThreshold).coerceIn(0f, 1f)
+                    val keepProgress = (offsetX / swipeThreshold).coerceIn(0f, 1f)
 
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                translationX = if (zoomScale <= 1.01f) offsetX else 0f
-                                rotationZ = if (zoomScale <= 1.01f) {
+                                translationX = if (zoomScale <= 1.02f) offsetX else 0f
+                                rotationZ = if (zoomScale <= 1.02f) {
                                     (offsetX / 40f).coerceIn(-12f, 12f)
                                 } else {
                                     0f
                                 }
                             }
-                            .pointerInput(currentPhoto.id, zoomScale) {
-                                detectTransformGestures { _, pan, zoom, _ ->
+                            .pointerInput(currentPhoto.id) {
+                                detectTapGestures(
+                                    onDoubleTap = {
+                                        if (currentScaleState > 1.05f) {
+                                            zoomScale = 1f
+                                            panOffset = Offset.Zero
+                                        } else {
+                                            zoomScale = 2f
+                                        }
+                                    }
+                                )
+                            }
+                            .pointerInput(currentPhoto.id) {
+                                detectTransformGestures(panZoomLock = false) { _, pan, zoom, _ ->
                                     val nextScale = (zoomScale * zoom).coerceIn(1f, 5f)
                                     zoomScale = nextScale
-                                    if (nextScale > 1.01f) {
-                                        val maxPanX = size.width * (nextScale - 1f) * 0.6f
-                                        val maxPanY = size.height * (nextScale - 1f) * 0.6f
+                                    if (nextScale > 1.02f) {
+                                        val maxPanX = size.width * (nextScale - 1f) * 0.75f
+                                        val maxPanY = size.height * (nextScale - 1f) * 0.75f
                                         panOffset = Offset(
                                             x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
                                             y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
@@ -310,34 +474,52 @@ fun SwipeGalleryApp() {
                                     }
                                 }
                             }
-                            .pointerInput(currentPhoto.id, zoomScale) {
-                                if (zoomScale <= 1.01f) {
-                                    detectDragGestures(
-                                        onDragEnd = {
+                            .pointerInput(currentPhoto.id) {
+                                detectDragGestures(
+                                    onDragEnd = {
+                                        if (currentScaleState <= 1.02f) {
                                             when {
                                                 offsetX > swipeThreshold -> {
-                                                    keptIds.add(currentPhoto.id)
-                                                    history.add(DecisionRecord(currentPhoto, DecisionType.KEEP))
+                                                    if (!keptIds.contains(currentPhoto.id)) {
+                                                        keptIds.add(currentPhoto.id)
+                                                        history.add(
+                                                            DecisionRecord(
+                                                                photoId = currentPhoto.id,
+                                                                type = DecisionType.KEEP
+                                                            )
+                                                        )
+                                                        persistNow()
+                                                    }
                                                 }
                                                 offsetX < -swipeThreshold -> {
-                                                    trashList.add(
-                                                        TrashRecord(
-                                                            photo = currentPhoto,
-                                                            markedAtMillis = System.currentTimeMillis()
+                                                    if (trashList.none { it.photo.id == currentPhoto.id }) {
+                                                        trashList.add(
+                                                            TrashRecord(
+                                                                photo = currentPhoto,
+                                                                markedAtMillis = System.currentTimeMillis()
+                                                            )
                                                         )
-                                                    )
-                                                    history.add(DecisionRecord(currentPhoto, DecisionType.TRASH))
+                                                        history.add(
+                                                            DecisionRecord(
+                                                                photoId = currentPhoto.id,
+                                                                type = DecisionType.TRASH
+                                                            )
+                                                        )
+                                                        persistNow()
+                                                    }
                                                 }
                                             }
-                                            offsetX = 0f
-                                        },
-                                        onDragCancel = { offsetX = 0f },
-                                        onDrag = { change, dragAmount ->
+                                        }
+                                        offsetX = 0f
+                                    },
+                                    onDragCancel = { offsetX = 0f },
+                                    onDrag = { change, dragAmount ->
+                                        if (currentScaleState <= 1.02f) {
                                             change.consume()
                                             offsetX += dragAmount.x
                                         }
-                                    )
-                                }
+                                    }
+                                )
                             }
                     ) {
                         AsyncImage(
@@ -354,8 +536,8 @@ fun SwipeGalleryApp() {
                                 }
                         )
 
-                        // Capa transparente sobre la imagen con acciones izquierda (eliminar) y derecha (conservar)
-                        if (zoomScale <= 1.01f) {
+                        // Capa transparente con íconos circulares tipo « y » sobre la imagen
+                        if (zoomScale <= 1.02f) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -364,48 +546,48 @@ fun SwipeGalleryApp() {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFF3F4F6).copy(alpha = 0.55f + trashProgress * 0.40f),
+                                    shadowElevation = 6.dp,
                                     modifier = Modifier
-                                        .background(
-                                            color = Color(0xFFB71C1C).copy(alpha = trashAlpha.coerceAtMost(0.75f)),
-                                            shape = MaterialTheme.shapes.large
-                                        )
-                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                        .size(64.dp)
+                                        .graphicsLayer {
+                                            val s = 1f + trashProgress * 0.14f
+                                            scaleX = s
+                                            scaleY = s
+                                        }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteOutline,
-                                        contentDescription = "Eliminar",
-                                        tint = Color.White.copy(alpha = (trashAlpha + 0.1f).coerceAtMost(1f)),
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Text(
-                                        text = "Eliminar",
-                                        color = Color.White.copy(alpha = (trashAlpha + 0.1f).coerceAtMost(1f)),
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardDoubleArrowLeft,
+                                            contentDescription = "Marcar para eliminar",
+                                            tint = Color(0xFF4B5563),
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                    }
                                 }
 
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFF3F4F6).copy(alpha = 0.55f + keepProgress * 0.40f),
+                                    shadowElevation = 6.dp,
                                     modifier = Modifier
-                                        .background(
-                                            color = Color(0xFF1B5E20).copy(alpha = keepAlpha.coerceAtMost(0.75f)),
-                                            shape = MaterialTheme.shapes.large
-                                        )
-                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                        .size(64.dp)
+                                        .graphicsLayer {
+                                            val s = 1f + keepProgress * 0.14f
+                                            scaleX = s
+                                            scaleY = s
+                                        }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircleOutline,
-                                        contentDescription = "Conservar",
-                                        tint = Color.White.copy(alpha = (keepAlpha + 0.1f).coerceAtMost(1f)),
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Text(
-                                        text = "Conservar",
-                                        color = Color.White.copy(alpha = (keepAlpha + 0.1f).coerceAtMost(1f)),
-                                        style = MaterialTheme.typography.labelMedium
-                                    )
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardDoubleArrowRight,
+                                            contentDescription = "Conservar",
+                                            tint = Color(0xFF4B5563),
+                                            modifier = Modifier.size(34.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -442,31 +624,203 @@ fun SwipeGalleryApp() {
             }
         }
 
-        if (showTrashSheet) {
-            ModalBottomSheet(onDismissRequest = { showTrashSheet = false }) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Papelera (30 días): ${trashList.size} fotos",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = {
-                                val uris = trashList.map { it.photo.uri }
-                                showTrashSheet = false
-                                requestSystemDeletion(uris)
-                            },
-                            enabled = trashList.isNotEmpty()
-                        ) {
-                            Text("Purgar ahora")
+        if (showTrashModal) {
+            TrashManagerModal(
+                trashRecords = trashList.toList(),
+                onDismiss = { showTrashModal = false },
+                onRestoreAll = {
+                    val restoredIds = trashList.map { it.photo.id }.toSet()
+                    trashList.clear()
+                    history.removeAll { it.photoId in restoredIds }
+                    persistNow()
+                    showTrashModal = false
+                },
+                onRestoreSelected = { selectedIds ->
+                    if (selectedIds.isNotEmpty()) {
+                        trashList.removeAll { it.photo.id in selectedIds }
+                        history.removeAll { it.photoId in selectedIds }
+                        persistNow()
+                    }
+                },
+                onDeletePermanentlySelected = { selectedIds ->
+                    val targets = if (selectedIds.isNotEmpty()) {
+                        trashList.filter { it.photo.id in selectedIds }
+                    } else {
+                        trashList.toList()
+                    }
+                    showTrashModal = false
+                    requestSystemDeletion(targets)
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrashManagerModal(
+    trashRecords: List<TrashRecord>,
+    onDismiss: () -> Unit,
+    onRestoreAll: () -> Unit,
+    onRestoreSelected: (Set<Long>) -> Unit,
+    onDeletePermanentlySelected: (Set<Long>) -> Unit
+) {
+    val selectedIds = remember(trashRecords.size) { mutableStateListOf<Long>() }
+
+    LaunchedEffect(trashRecords) {
+        val validIds = trashRecords.map { it.photo.id }.toSet()
+        selectedIds.removeAll { it !in validIds }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Papelera (${trashRecords.size})",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar")
                         }
-                        OutlinedButton(onClick = { showTrashSheet = false }) {
-                            Text("Cerrar")
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = onRestoreAll,
+                            enabled = trashRecords.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Restore,
+                                contentDescription = "Restaurar todo"
+                            )
+                        }
+                        IconButton(
+                            onClick = { onDeletePermanentlySelected(selectedIds.toSet()) },
+                            enabled = trashRecords.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteForever,
+                                contentDescription = "Eliminar definitivamente"
+                            )
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                if (selectedIds.isNotEmpty()) {
+                    Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${selectedIds.size} sel.",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    val chosen = selectedIds.toSet()
+                                    selectedIds.clear()
+                                    onRestoreSelected(chosen)
+                                }
+                            ) {
+                                Text("Recuperar")
+                            }
+                            Button(
+                                onClick = {
+                                    val chosen = selectedIds.toSet()
+                                    selectedIds.clear()
+                                    onDeletePermanentlySelected(chosen)
+                                }
+                            ) {
+                                Text("Eliminar")
+                            }
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
+            if (trashRecords.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No hay imágenes en la papelera.")
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    items(trashRecords, key = { it.photo.id }) { record ->
+                        val photo = record.photo
+                        val isChecked = selectedIds.contains(photo.id)
+
+                        Box(
+                            modifier = Modifier
+                                .aspectRatio(1f)
+                                .clip(MaterialTheme.shapes.small)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable {
+                                    if (isChecked) {
+                                        selectedIds.remove(photo.id)
+                                    } else {
+                                        selectedIds.add(photo.id)
+                                    }
+                                }
+                        ) {
+                            AsyncImage(
+                                model = photo.uri,
+                                contentDescription = photo.displayName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            Checkbox(
+                                checked = isChecked,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        if (!selectedIds.contains(photo.id)) selectedIds.add(photo.id)
+                                    } else {
+                                        selectedIds.remove(photo.id)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(2.dp)
+                            )
+
+                            Text(
+                                text = photo.displayName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .background(Color.Black.copy(alpha = 0.55f))
+                                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
                         }
                     }
                 }
@@ -475,7 +829,7 @@ fun SwipeGalleryApp() {
     }
 }
 
-private fun loadPhotosFromMediaStore(context: android.content.Context): List<PhotoItem> {
+private fun loadPhotosFromMediaStore(context: Context): List<PhotoItem> {
     val result = mutableListOf<PhotoItem>()
     val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
