@@ -32,9 +32,11 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.outlined.AutoFixNormal
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.SwipeLeft
+import androidx.compose.material.icons.rounded.SwipeRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -536,56 +538,80 @@ fun SwipeGalleryApp() {
                                 }
                         )
 
-                        // Capa transparente con íconos circulares tipo « y » sobre la imagen
+                        // Capa transparente: deslizar + borrador (izquierda) y deslizar + disco (derecha)
                         if (zoomScale <= 1.02f) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .align(Alignment.Center)
-                                    .padding(horizontal = 24.dp),
+                                    .padding(horizontal = 20.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color(0xFFF3F4F6).copy(alpha = 0.55f + trashProgress * 0.40f),
+                                    color = Color(0xFFF3F4F6).copy(alpha = 0.62f + trashProgress * 0.35f),
                                     shadowElevation = 6.dp,
                                     modifier = Modifier
-                                        .size(64.dp)
+                                        .size(72.dp)
                                         .graphicsLayer {
                                             val s = 1f + trashProgress * 0.14f
                                             scaleX = s
                                             scaleY = s
                                         }
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
                                         Icon(
-                                            imageVector = Icons.Default.KeyboardDoubleArrowLeft,
-                                            contentDescription = "Marcar para eliminar",
-                                            tint = Color(0xFF4B5563),
+                                            imageVector = Icons.Rounded.SwipeLeft,
+                                            contentDescription = "Deslizar a la izquierda para borrar",
+                                            tint = Color(0xFF374151),
                                             modifier = Modifier.size(34.dp)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Outlined.AutoFixNormal,
+                                            contentDescription = null,
+                                            tint = Color(0xFFB91C1C),
+                                            modifier = Modifier
+                                                .size(18.dp)
+                                                .align(Alignment.TopEnd)
+                                                .padding(top = 10.dp, end = 10.dp)
                                         )
                                     }
                                 }
 
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color(0xFFF3F4F6).copy(alpha = 0.55f + keepProgress * 0.40f),
+                                    color = Color(0xFFF3F4F6).copy(alpha = 0.62f + keepProgress * 0.35f),
                                     shadowElevation = 6.dp,
                                     modifier = Modifier
-                                        .size(64.dp)
+                                        .size(72.dp)
                                         .graphicsLayer {
                                             val s = 1f + keepProgress * 0.14f
                                             scaleX = s
                                             scaleY = s
                                         }
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
                                         Icon(
-                                            imageVector = Icons.Default.KeyboardDoubleArrowRight,
-                                            contentDescription = "Conservar",
-                                            tint = Color(0xFF4B5563),
+                                            imageVector = Icons.Rounded.SwipeRight,
+                                            contentDescription = "Deslizar a la derecha para conservar",
+                                            tint = Color(0xFF374151),
                                             modifier = Modifier.size(34.dp)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Rounded.Save,
+                                            contentDescription = null,
+                                            tint = Color(0xFF15803D),
+                                            modifier = Modifier
+                                                .size(18.dp)
+                                                .align(Alignment.TopEnd)
+                                                .padding(top = 10.dp, end = 10.dp)
                                         )
                                     }
                                 }
@@ -665,7 +691,7 @@ private fun TrashManagerModal(
     onRestoreSelected: (Set<Long>) -> Unit,
     onDeletePermanentlySelected: (Set<Long>) -> Unit
 ) {
-    val selectedIds = remember(trashRecords.size) { mutableStateListOf<Long>() }
+    val selectedIds = remember { mutableStateListOf<Long>() }
 
     LaunchedEffect(trashRecords) {
         val validIds = trashRecords.map { it.photo.id }.toSet()
@@ -694,7 +720,10 @@ private fun TrashManagerModal(
                     },
                     actions = {
                         IconButton(
-                            onClick = onRestoreAll,
+                            onClick = {
+                                selectedIds.clear()
+                                onRestoreAll()
+                            },
                             enabled = trashRecords.isNotEmpty()
                         ) {
                             Icon(
@@ -732,7 +761,7 @@ private fun TrashManagerModal(
                             OutlinedButton(
                                 onClick = {
                                     val chosen = selectedIds.toSet()
-                                    selectedIds.clear()
+                                    selectedIds.removeAll { it in chosen }
                                     onRestoreSelected(chosen)
                                 }
                             ) {
