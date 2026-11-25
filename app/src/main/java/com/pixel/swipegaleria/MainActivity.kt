@@ -15,7 +15,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -686,21 +688,23 @@ fun SwipeGalleryApp() {
                     persistNow()
                     showTrashModal = false
                 },
-                onRestoreSelected = { selectedIds ->
-                    if (selectedIds.isNotEmpty()) {
-                        trashList.removeAll { it.photo.id in selectedIds }
-                        history.removeAll { it.photoId in selectedIds }
+                onRestoreIds = { idsToRestore ->
+                    if (idsToRestore.isNotEmpty()) {
+                        trashList.removeAll { it.photo.id in idsToRestore }
+                        history.removeAll { it.photoId in idsToRestore }
                         persistNow()
                     }
                 },
-                onDeletePermanentlySelected = { selectedIds ->
-                    val targets = if (selectedIds.isNotEmpty()) {
-                        trashList.filter { it.photo.id in selectedIds }
+                onDeletePermanentlyIds = { idsToDelete ->
+                    val targets = if (idsToDelete.isNotEmpty()) {
+                        trashList.filter { it.photo.id in idsToDelete }
                     } else {
                         trashList.toList()
                     }
-                    showTrashModal = false
-                    requestSystemDeletion(targets)
+                    if (targets.isNotEmpty()) {
+                        showTrashModal = false
+                        requestSystemDeletion(targets)
+                    }
                 }
             )
         }
@@ -713,21 +717,23 @@ private fun TrashManagerModal(
     trashRecords: List<TrashRecord>,
     onDismiss: () -> Unit,
     onRestoreAll: () -> Unit,
-    onRestoreSelected: (Set<Long>) -> Unit,
-    onDeletePermanentlySelected: (Set<Long>) -> Unit
+    onRestoreIds: (Set<Long>) -> Unit,
+    onDeletePermanentlyIds: (Set<Long>) -> Unit
 ) {
-    val checkedById = remember { mutableStateMapOf<Long, Boolean>() }
+    var selectedIds by remember { mutableStateOf(setOf<Long>()) }
 
     LaunchedEffect(trashRecords) {
         val validIds = trashRecords.map { it.photo.id }.toSet()
-        val staleKeys = checkedById.keys.filter { it !in validIds }
-        staleKeys.forEach { checkedById.remove(it) }
+        selectedIds = selectedIds.intersect(validIds)
     }
 
-    val selectedIds: Set<Long> = checkedById
-        .filterValues { it }
-        .keys
-        .toSet()
+    fun toggleId(photoId: Long) {
+        selectedIds = if (photoId in selectedIds) {
+            selectedIds - photoId
+        } else {
+            selectedIds + photoId
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -752,7 +758,7 @@ private fun TrashManagerModal(
                     actions = {
                         IconButton(
                             onClick = {
-                                checkedById.clear()
+                                selectedIds = emptySet()
                                 onRestoreAll()
                             },
                             enabled = trashRecords.isNotEmpty()
@@ -764,9 +770,9 @@ private fun TrashManagerModal(
                         }
                         IconButton(
                             onClick = {
-                                val chosen = selectedIds
-                                checkedById.clear()
-                                onDeletePermanentlySelected(chosen)
+                                val targets = selectedIds
+                                selectedIds = emptySet()
+                                onDeletePermanentlyIds(targets)
                             },
                             enabled = trashRecords.isNotEmpty()
                         ) {
@@ -789,24 +795,24 @@ private fun TrashManagerModal(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "${selectedIds.size} sel.",
+                                text = "${selectedIds.size} seleccionadas",
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.weight(1f)
                             )
                             OutlinedButton(
                                 onClick = {
-                                    val chosen = selectedIds
-                                    chosen.forEach { checkedById.remove(it) }
-                                    onRestoreSelected(chosen)
+                                    val targets = selectedIds
+                                    selectedIds = selectedIds - targets
+                                    onRestoreIds(targets)
                                 }
                             ) {
                                 Text("Recuperar")
                             }
                             Button(
                                 onClick = {
-                                    val chosen = selectedIds
-                                    chosen.forEach { checkedById.remove(it) }
-                                    onDeletePermanentlySelected(chosen)
+                                    val targets = selectedIds
+                                    selectedIds = selectedIds - targets
+                                    onDeletePermanentlyIds(targets)
                                 }
                             ) {
                                 Text("Eliminar")
@@ -837,16 +843,24 @@ private fun TrashManagerModal(
                 ) {
                     items(trashRecords, key = { it.photo.id }) { record ->
                         val photo = record.photo
-                        val isChecked = checkedById[photo.id] == true
+                        val isChecked = photo.id in selectedIds
 
                         Box(
                             modifier = Modifier
                                 .aspectRatio(1f)
                                 .clip(MaterialTheme.shapes.small)
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable {
-                                    checkedById[photo.id] = !isChecked
-                                }
+                                .then(
+                                    if (isChecked) {
+                                        Modifier.border(
+                                            BorderStroke(3.dp, MaterialTheme.colorScheme.primary),
+                                            MaterialTheme.shapes.small
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .clickable { toggleId(photo.id) }
                         ) {
                             AsyncImage(
                                 model = photo.uri,
@@ -858,7 +872,11 @@ private fun TrashManagerModal(
                             Checkbox(
                                 checked = isChecked,
                                 onCheckedChange = { checked ->
-                                    checkedById[photo.id] = checked
+                                    selectedIds = if (checked) {
+                                        selectedIds + photo.id
+                                    } else {
+                                        selectedIds - photo.id
+                                    }
                                 },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
