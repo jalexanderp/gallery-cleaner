@@ -541,7 +541,6 @@ fun SwipeGalleryApp() {
                                 }
                         )
 
-                        // Capa transparente grande y legible: deslizar + borrador (izquierda) y deslizar + disco (derecha)
                         if (zoomScale <= 1.02f) {
                             Row(
                                 modifier = Modifier
@@ -645,7 +644,6 @@ fun SwipeGalleryApp() {
                             }
                         }
 
-                        // Título y fecha de la imagen en la parte inferior
                         Surface(
                             color = Color.Black.copy(alpha = 0.65f),
                             shape = MaterialTheme.shapes.medium,
@@ -739,9 +737,16 @@ private fun TrashManagerModal(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Scaffold(
+        Surface(
             modifier = Modifier.fillMaxSize(),
-            topBar = {
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+            ) {
                 TopAppBar(
                     title = {
                         Text(
@@ -783,10 +788,92 @@ private fun TrashManagerModal(
                         }
                     }
                 )
-            },
-            bottomBar = {
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    if (trashRecords.isEmpty()) {
+                        Text(
+                            text = "No hay imágenes en la papelera.",
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            contentPadding = PaddingValues(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(trashRecords, key = { it.photo.id }) { record ->
+                                val photo = record.photo
+                                val isChecked = photo.id in selectedIds
+
+                                Box(
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clip(MaterialTheme.shapes.small)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .then(
+                                            if (isChecked) {
+                                                Modifier.border(
+                                                    BorderStroke(3.dp, MaterialTheme.colorScheme.primary),
+                                                    MaterialTheme.shapes.small
+                                                )
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
+                                        .clickable { toggleId(photo.id) }
+                                ) {
+                                    AsyncImage(
+                                        model = photo.uri,
+                                        contentDescription = photo.displayName,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = { checked ->
+                                            selectedIds = if (checked) {
+                                                selectedIds + photo.id
+                                            } else {
+                                                selectedIds - photo.id
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(2.dp)
+                                    )
+
+                                    Text(
+                                        text = photo.displayName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .fillMaxWidth()
+                                            .background(Color.Black.copy(alpha = 0.55f))
+                                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (selectedIds.isNotEmpty()) {
-                    Surface(tonalElevation = 4.dp, shadowElevation = 8.dp) {
+                    Surface(
+                        tonalElevation = 6.dp,
+                        shadowElevation = 10.dp,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -817,84 +904,6 @@ private fun TrashManagerModal(
                             ) {
                                 Text("Eliminar")
                             }
-                        }
-                    }
-                }
-            }
-        ) { innerPadding ->
-            if (trashRecords.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No hay imágenes en la papelera.")
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    contentPadding = PaddingValues(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                ) {
-                    items(trashRecords, key = { it.photo.id }) { record ->
-                        val photo = record.photo
-                        val isChecked = photo.id in selectedIds
-
-                        Box(
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .clip(MaterialTheme.shapes.small)
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .then(
-                                    if (isChecked) {
-                                        Modifier.border(
-                                            BorderStroke(3.dp, MaterialTheme.colorScheme.primary),
-                                            MaterialTheme.shapes.small
-                                        )
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                                .clickable { toggleId(photo.id) }
-                        ) {
-                            AsyncImage(
-                                model = photo.uri,
-                                contentDescription = photo.displayName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            Checkbox(
-                                checked = isChecked,
-                                onCheckedChange = { checked ->
-                                    selectedIds = if (checked) {
-                                        selectedIds + photo.id
-                                    } else {
-                                        selectedIds - photo.id
-                                    }
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(2.dp)
-                            )
-
-                            Text(
-                                text = photo.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .fillMaxWidth()
-                                    .background(Color.Black.copy(alpha = 0.55f))
-                                    .padding(horizontal = 6.dp, vertical = 3.dp)
-                            )
                         }
                     }
                 }
