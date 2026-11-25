@@ -53,8 +53,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import org.json.JSONArray
@@ -351,323 +349,325 @@ fun SwipeGalleryApp() {
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Swipe Galería") },
-                actions = {
-                    SortField.entries.forEach { field ->
-                        val selected = sortField == field
-                        FilterChip(
-                            selected = selected,
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Swipe Galería") },
+                    actions = {
+                        SortField.entries.forEach { field ->
+                            val selected = sortField == field
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    if (selected) {
+                                        descending = !descending
+                                    } else {
+                                        sortField = field
+                                        descending = true
+                                    }
+                                },
+                                label = { Text(field.label) },
+                                leadingIcon = if (selected) {
+                                    {
+                                        Icon(
+                                            imageVector = if (descending) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                } else null,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
+
+                        IconButton(
                             onClick = {
-                                if (selected) {
-                                    descending = !descending
-                                } else {
-                                    sortField = field
-                                    descending = true
+                                val last = history.removeLastOrNull() ?: return@IconButton
+                                when (last.type) {
+                                    DecisionType.KEEP -> keptIds.remove(last.photoId)
+                                    DecisionType.TRASH -> trashList.removeAll { it.photo.id == last.photoId }
+                                }
+                                persistNow()
+                            },
+                            enabled = history.isNotEmpty()
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Deshacer")
+                        }
+
+                        BadgedBox(
+                            badge = {
+                                if (trashList.isNotEmpty()) {
+                                    Badge { Text(trashList.size.toString()) }
                                 }
                             },
-                            label = { Text(field.label) },
-                            leadingIcon = if (selected) {
-                                {
-                                    Icon(
-                                        imageVector = if (descending) Icons.Default.ArrowDownward else Icons.Default.ArrowUpward,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            } else null,
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = {
-                            val last = history.removeLastOrNull() ?: return@IconButton
-                            when (last.type) {
-                                DecisionType.KEEP -> keptIds.remove(last.photoId)
-                                DecisionType.TRASH -> trashList.removeAll { it.photo.id == last.photoId }
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            IconButton(onClick = { showTrashModal = true }) {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = "Papelera")
                             }
-                            persistNow()
-                        },
-                        enabled = history.isNotEmpty()
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Deshacer")
-                    }
-
-                    BadgedBox(
-                        badge = {
-                            if (trashList.isNotEmpty()) {
-                                Badge { Text(trashList.size.toString()) }
-                            }
-                        },
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        IconButton(onClick = { showTrashModal = true }) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Papelera")
                         }
                     }
-                }
-            )
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!hasPermission) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Se requiere acceso a tus fotos para comenzar.")
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { permissionLauncher.launch(permission) }) {
-                        Text("Conceder permiso")
+                )
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!hasPermission) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Se requiere acceso a tus fotos para comenzar.")
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { permissionLauncher.launch(permission) }) {
+                            Text("Conceder permiso")
+                        }
                     }
-                }
-            } else {
-                val currentPhoto = pendingPhotos.firstOrNull()
-                if (currentPhoto == null) {
-                    Text("¡Listo! No quedan fotos pendientes por revisar.")
                 } else {
-                    var offsetX by remember(currentPhoto.id) { mutableFloatStateOf(0f) }
-                    var zoomScale by remember(currentPhoto.id) { mutableFloatStateOf(1f) }
-                    var panOffset by remember(currentPhoto.id) { mutableStateOf(Offset.Zero) }
-                    val currentScaleState by rememberUpdatedState(zoomScale)
-                    val swipeThreshold = 220f
+                    val currentPhoto = pendingPhotos.firstOrNull()
+                    if (currentPhoto == null) {
+                        Text("¡Listo! No quedan fotos pendientes por revisar.")
+                    } else {
+                        var offsetX by remember(currentPhoto.id) { mutableFloatStateOf(0f) }
+                        var zoomScale by remember(currentPhoto.id) { mutableFloatStateOf(1f) }
+                        var panOffset by remember(currentPhoto.id) { mutableStateOf(Offset.Zero) }
+                        val currentScaleState by rememberUpdatedState(zoomScale)
+                        val swipeThreshold = 220f
 
-                    val trashProgress = (-offsetX / swipeThreshold).coerceIn(0f, 1f)
-                    val keepProgress = (offsetX / swipeThreshold).coerceIn(0f, 1f)
+                        val trashProgress = (-offsetX / swipeThreshold).coerceIn(0f, 1f)
+                        val keepProgress = (offsetX / swipeThreshold).coerceIn(0f, 1f)
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = if (zoomScale <= 1.02f) offsetX else 0f
-                                rotationZ = if (zoomScale <= 1.02f) {
-                                    (offsetX / 40f).coerceIn(-12f, 12f)
-                                } else {
-                                    0f
-                                }
-                            }
-                            .pointerInput(currentPhoto.id) {
-                                detectTapGestures(
-                                    onDoubleTap = {
-                                        if (currentScaleState > 1.05f) {
-                                            zoomScale = 1f
-                                            panOffset = Offset.Zero
-                                        } else {
-                                            zoomScale = 2f
-                                        }
-                                    }
-                                )
-                            }
-                            .pointerInput(currentPhoto.id) {
-                                detectTransformGestures(panZoomLock = false) { _, pan, zoom, _ ->
-                                    val nextScale = (zoomScale * zoom).coerceIn(1f, 5f)
-                                    zoomScale = nextScale
-                                    if (nextScale > 1.02f) {
-                                        val maxPanX = size.width * (nextScale - 1f) * 0.75f
-                                        val maxPanY = size.height * (nextScale - 1f) * 0.75f
-                                        panOffset = Offset(
-                                            x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
-                                            y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
-                                        )
-                                    } else {
-                                        panOffset = Offset.Zero
-                                    }
-                                }
-                            }
-                            .pointerInput(currentPhoto.id) {
-                                detectDragGestures(
-                                    onDragEnd = {
-                                        if (currentScaleState <= 1.02f) {
-                                            when {
-                                                offsetX > swipeThreshold -> {
-                                                    if (!keptIds.contains(currentPhoto.id)) {
-                                                        keptIds.add(currentPhoto.id)
-                                                        history.add(
-                                                            DecisionRecord(
-                                                                photoId = currentPhoto.id,
-                                                                type = DecisionType.KEEP
-                                                            )
-                                                        )
-                                                        persistNow()
-                                                    }
-                                                }
-                                                offsetX < -swipeThreshold -> {
-                                                    if (trashList.none { it.photo.id == currentPhoto.id }) {
-                                                        trashList.add(
-                                                            TrashRecord(
-                                                                photo = currentPhoto,
-                                                                markedAtMillis = System.currentTimeMillis()
-                                                            )
-                                                        )
-                                                        history.add(
-                                                            DecisionRecord(
-                                                                photoId = currentPhoto.id,
-                                                                type = DecisionType.TRASH
-                                                            )
-                                                        )
-                                                        persistNow()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        offsetX = 0f
-                                    },
-                                    onDragCancel = { offsetX = 0f },
-                                    onDrag = { change, dragAmount ->
-                                        if (currentScaleState <= 1.02f) {
-                                            change.consume()
-                                            offsetX += dragAmount.x
-                                        }
-                                    }
-                                )
-                            }
-                    ) {
-                        AsyncImage(
-                            model = currentPhoto.uri,
-                            contentDescription = currentPhoto.displayName,
-                            contentScale = ContentScale.Fit,
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    scaleX = zoomScale
-                                    scaleY = zoomScale
-                                    translationX = panOffset.x
-                                    translationY = panOffset.y
-                                }
-                        )
-
-                        if (zoomScale <= 1.02f) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .align(Alignment.Center)
-                                    .padding(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFFF3F4F6).copy(alpha = 0.68f + trashProgress * 0.28f),
-                                    shadowElevation = 8.dp,
-                                    modifier = Modifier
-                                        .size(96.dp)
-                                        .graphicsLayer {
-                                            val s = 1f + trashProgress * 0.14f
-                                            scaleX = s
-                                            scaleY = s
-                                        }
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(6.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.SwipeLeft,
-                                                contentDescription = "Deslizar a la izquierda para borrar",
-                                                tint = Color(0xFF1F2937),
-                                                modifier = Modifier.size(34.dp)
-                                            )
-                                            Icon(
-                                                imageVector = Icons.Outlined.AutoFixNormal,
-                                                contentDescription = null,
-                                                tint = Color(0xFFB91C1C),
-                                                modifier = Modifier.size(28.dp)
-                                            )
-                                        }
-                                        Text(
-                                            text = "Borrar",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF991B1B),
-                                            maxLines = 1
-                                        )
+                                    translationX = if (zoomScale <= 1.02f) offsetX else 0f
+                                    rotationZ = if (zoomScale <= 1.02f) {
+                                        (offsetX / 40f).coerceIn(-12f, 12f)
+                                    } else {
+                                        0f
                                     }
                                 }
+                                .pointerInput(currentPhoto.id) {
+                                    detectTapGestures(
+                                        onDoubleTap = {
+                                            if (currentScaleState > 1.05f) {
+                                                zoomScale = 1f
+                                                panOffset = Offset.Zero
+                                            } else {
+                                                zoomScale = 2f
+                                            }
+                                        }
+                                    )
+                                }
+                                .pointerInput(currentPhoto.id) {
+                                    detectTransformGestures(panZoomLock = false) { _, pan, zoom, _ ->
+                                        val nextScale = (zoomScale * zoom).coerceIn(1f, 5f)
+                                        zoomScale = nextScale
+                                        if (nextScale > 1.02f) {
+                                            val maxPanX = size.width * (nextScale - 1f) * 0.75f
+                                            val maxPanY = size.height * (nextScale - 1f) * 0.75f
+                                            panOffset = Offset(
+                                                x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                                                y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                                            )
+                                        } else {
+                                            panOffset = Offset.Zero
+                                        }
+                                    }
+                                }
+                                .pointerInput(currentPhoto.id) {
+                                    detectDragGestures(
+                                        onDragEnd = {
+                                            if (currentScaleState <= 1.02f) {
+                                                when {
+                                                    offsetX > swipeThreshold -> {
+                                                        if (!keptIds.contains(currentPhoto.id)) {
+                                                            keptIds.add(currentPhoto.id)
+                                                            history.add(
+                                                                DecisionRecord(
+                                                                    photoId = currentPhoto.id,
+                                                                    type = DecisionType.KEEP
+                                                                )
+                                                            )
+                                                            persistNow()
+                                                        }
+                                                    }
+                                                    offsetX < -swipeThreshold -> {
+                                                        if (trashList.none { it.photo.id == currentPhoto.id }) {
+                                                            trashList.add(
+                                                                TrashRecord(
+                                                                    photo = currentPhoto,
+                                                                    markedAtMillis = System.currentTimeMillis()
+                                                                )
+                                                            )
+                                                            history.add(
+                                                                DecisionRecord(
+                                                                    photoId = currentPhoto.id,
+                                                                    type = DecisionType.TRASH
+                                                                )
+                                                            )
+                                                            persistNow()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            offsetX = 0f
+                                        },
+                                        onDragCancel = { offsetX = 0f },
+                                        onDrag = { change, dragAmount ->
+                                            if (currentScaleState <= 1.02f) {
+                                                change.consume()
+                                                offsetX += dragAmount.x
+                                            }
+                                        }
+                                    )
+                                }
+                        ) {
+                            AsyncImage(
+                                model = currentPhoto.uri,
+                                contentDescription = currentPhoto.displayName,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        scaleX = zoomScale
+                                        scaleY = zoomScale
+                                        translationX = panOffset.x
+                                        translationY = panOffset.y
+                                    }
+                            )
 
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFFF3F4F6).copy(alpha = 0.68f + keepProgress * 0.28f),
-                                    shadowElevation = 8.dp,
+                            if (zoomScale <= 1.02f) {
+                                Row(
                                     modifier = Modifier
-                                        .size(96.dp)
-                                        .graphicsLayer {
-                                            val s = 1f + keepProgress * 0.14f
-                                            scaleX = s
-                                            scaleY = s
-                                        }
+                                        .fillMaxWidth()
+                                        .align(Alignment.Center)
+                                        .padding(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFF3F4F6).copy(alpha = 0.68f + trashProgress * 0.28f),
+                                        shadowElevation = 8.dp,
                                         modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(6.dp)
+                                            .size(96.dp)
+                                            .graphicsLayer {
+                                                val s = 1f + trashProgress * 0.14f
+                                                scaleX = s
+                                                scaleY = s
+                                            }
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(6.dp)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.SwipeRight,
-                                                contentDescription = "Deslizar a la derecha para conservar",
-                                                tint = Color(0xFF1F2937),
-                                                modifier = Modifier.size(34.dp)
-                                            )
-                                            Icon(
-                                                imageVector = Icons.Rounded.Save,
-                                                contentDescription = null,
-                                                tint = Color(0xFF15803D),
-                                                modifier = Modifier.size(28.dp)
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.SwipeLeft,
+                                                    contentDescription = "Deslizar a la izquierda para borrar",
+                                                    tint = Color(0xFF1F2937),
+                                                    modifier = Modifier.size(34.dp)
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Outlined.AutoFixNormal,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFFB91C1C),
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = "Borrar",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF991B1B),
+                                                maxLines = 1
                                             )
                                         }
-                                        Text(
-                                            text = "Guardar",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF166534),
-                                            maxLines = 1
-                                        )
+                                    }
+
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFF3F4F6).copy(alpha = 0.68f + keepProgress * 0.28f),
+                                        shadowElevation = 8.dp,
+                                        modifier = Modifier
+                                            .size(96.dp)
+                                            .graphicsLayer {
+                                                val s = 1f + keepProgress * 0.14f
+                                                scaleX = s
+                                                scaleY = s
+                                            }
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(6.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.SwipeRight,
+                                                    contentDescription = "Deslizar a la derecha para conservar",
+                                                    tint = Color(0xFF1F2937),
+                                                    modifier = Modifier.size(34.dp)
+                                                )
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Save,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF15803D),
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = "Guardar",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF166534),
+                                                maxLines = 1
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.65f),
-                            shape = MaterialTheme.shapes.medium,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 16.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.65f),
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 16.dp)
                             ) {
-                                Text(
-                                    text = currentPhoto.displayName,
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = formatPhotoDate(currentPhoto.dateAddedSeconds),
-                                    color = Color.White.copy(alpha = 0.85f),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = currentPhoto.displayName,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = formatPhotoDate(currentPhoto.dateAddedSeconds),
+                                        color = Color.White.copy(alpha = 0.85f),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
                             }
                         }
                     }
@@ -733,177 +733,172 @@ private fun TrashManagerModal(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-            ) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "Papelera (${trashRecords.size})",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Cerrar")
-                        }
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = {
-                                selectedIds = emptySet()
-                                onRestoreAll()
-                            },
-                            enabled = trashRecords.isNotEmpty()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Restore,
-                                contentDescription = "Restaurar todo"
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                val targets = selectedIds
-                                selectedIds = emptySet()
-                                onDeletePermanentlyIds(targets)
-                            },
-                            enabled = trashRecords.isNotEmpty()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteForever,
-                                contentDescription = "Eliminar definitivamente"
-                            )
-                        }
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Papelera (${trashRecords.size})",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar")
                     }
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    if (trashRecords.isEmpty()) {
-                        Text(
-                            text = "No hay imágenes en la papelera.",
-                            modifier = Modifier.align(Alignment.Center)
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            selectedIds = emptySet()
+                            onRestoreAll()
+                        },
+                        enabled = trashRecords.isNotEmpty()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Restore,
+                            contentDescription = "Restaurar todo"
                         )
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
-                            contentPadding = PaddingValues(8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(trashRecords, key = { it.photo.id }) { record ->
-                                val photo = record.photo
-                                val isChecked = photo.id in selectedIds
+                    }
+                    IconButton(
+                        onClick = {
+                            val targets = selectedIds
+                            selectedIds = emptySet()
+                            onDeletePermanentlyIds(targets)
+                        },
+                        enabled = trashRecords.isNotEmpty()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteForever,
+                            contentDescription = "Eliminar definitivamente"
+                        )
+                    }
+                }
+            )
 
-                                Box(
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                if (trashRecords.isEmpty()) {
+                    Text(
+                        text = "No hay imágenes en la papelera.",
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        contentPadding = PaddingValues(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(trashRecords, key = { it.photo.id }) { record ->
+                            val photo = record.photo
+                            val isChecked = photo.id in selectedIds
+
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .then(
+                                        if (isChecked) {
+                                            Modifier.border(
+                                                BorderStroke(3.dp, MaterialTheme.colorScheme.primary),
+                                                MaterialTheme.shapes.small
+                                            )
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .clickable { toggleId(photo.id) }
+                            ) {
+                                AsyncImage(
+                                    model = photo.uri,
+                                    contentDescription = photo.displayName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { checked ->
+                                        selectedIds = if (checked) {
+                                            selectedIds + photo.id
+                                        } else {
+                                            selectedIds - photo.id
+                                        }
+                                    },
                                     modifier = Modifier
-                                        .aspectRatio(1f)
-                                        .clip(MaterialTheme.shapes.small)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                                        .then(
-                                            if (isChecked) {
-                                                Modifier.border(
-                                                    BorderStroke(3.dp, MaterialTheme.colorScheme.primary),
-                                                    MaterialTheme.shapes.small
-                                                )
-                                            } else {
-                                                Modifier
-                                            }
-                                        )
-                                        .clickable { toggleId(photo.id) }
-                                ) {
-                                    AsyncImage(
-                                        model = photo.uri,
-                                        contentDescription = photo.displayName,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                        .align(Alignment.TopEnd)
+                                        .padding(2.dp)
+                                )
 
-                                    Checkbox(
-                                        checked = isChecked,
-                                        onCheckedChange = { checked ->
-                                            selectedIds = if (checked) {
-                                                selectedIds + photo.id
-                                            } else {
-                                                selectedIds - photo.id
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(2.dp)
-                                    )
-
-                                    Text(
-                                        text = photo.displayName,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier
-                                            .align(Alignment.BottomStart)
-                                            .fillMaxWidth()
-                                            .background(Color.Black.copy(alpha = 0.55f))
-                                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                                    )
-                                }
+                                Text(
+                                    text = photo.displayName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .fillMaxWidth()
+                                        .background(Color.Black.copy(alpha = 0.55f))
+                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                )
                             }
                         }
                     }
                 }
+            }
 
-                if (selectedIds.isNotEmpty()) {
-                    Surface(
-                        tonalElevation = 6.dp,
-                        shadowElevation = 10.dp,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.fillMaxWidth()
+            if (selectedIds.isNotEmpty()) {
+                Surface(
+                    tonalElevation = 6.dp,
+                    shadowElevation = 10.dp,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Text(
+                            text = "${selectedIds.size} seleccionadas",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val targets = selectedIds
+                                selectedIds = selectedIds - targets
+                                onRestoreIds(targets)
+                            }
                         ) {
-                            Text(
-                                text = "${selectedIds.size} seleccionadas",
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.weight(1f)
-                            )
-                            OutlinedButton(
-                                onClick = {
-                                    val targets = selectedIds
-                                    selectedIds = selectedIds - targets
-                                    onRestoreIds(targets)
-                                }
-                            ) {
-                                Text("Recuperar")
+                            Text("Recuperar")
+                        }
+                        Button(
+                            onClick = {
+                                val targets = selectedIds
+                                selectedIds = selectedIds - targets
+                                onDeletePermanentlyIds(targets)
                             }
-                            Button(
-                                onClick = {
-                                    val targets = selectedIds
-                                    selectedIds = selectedIds - targets
-                                    onDeletePermanentlyIds(targets)
-                                }
-                            ) {
-                                Text("Eliminar")
-                            }
+                        ) {
+                            Text("Eliminar")
                         }
                     }
                 }
